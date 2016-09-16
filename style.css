@@ -1,0 +1,134 @@
+* {
+    font-family: 'Oswald', sans-serif;
+}
+
+body {
+	margin: 0;
+	padding: 0;
+	background-color: lightblue;
+}
+
+#map {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 270px;
+	bottom: 0;
+}
+
+#title {
+	font-size: 18pt;
+    color: white;
+}
+
+#author {
+	font-size: 10pt;
+	font-style: italic;
+	letter-spacing: 1px;
+}
+
+#finddata {
+	width: 250px;
+}
+
+.legend_circle {
+	width: 10px;
+	height: 10px;
+	display: inline-block;
+	border: 1px solid white; 
+	border-radius: 5px; 
+	-webkit-border-radius: 5px;
+	opacity: .9;
+}
+
+#radiusAdjusted {
+	font-size: 9pt;
+}
+
+svg {
+	background-color: white;
+	width: 100%;
+	top: 0px;
+	bottom: 0px;
+	left: 0px;
+	right: 0px;
+}
+
+#graticule {
+	fill: none;
+  	stroke: gray;
+	stroke-width: .5px;
+	stroke-opacity: .5;
+}
+
+.land_boundaries {
+	fill: silver;
+	stroke: gray;
+}
+
+.country_boundaries {
+  	fill: none;
+    stroke: white;
+	stroke-width: 1px;
+	opacity: .5;
+}
+
+circle {
+	fill-opacity: .8;
+	stroke: white;
+	stroke-opacity: .5;
+	opacity: .5;
+}
+
+.data_visible {
+	opacity: .5;
+}
+
+.data_hidden {
+	fill-opacity: .25;
+    stroke-opacity: .25;
+    opacity: .25;
+}
+
+.data_hilight{
+    stroke: green;
+    fill-opacity: .9;
+    stroke-opacity: .9;
+    opacity: .5;
+}
+
+.overlay {
+	fill: none;
+	pointer-events: all;
+}
+
+hr {
+	border: 0;
+	border-bottom: 1px solid gray;
+}
+
+#texts {
+	position: absolute;
+	right: 0px;
+	width: 249px;
+	height: 98%;
+	padding: 10px;
+	font-size: 12pt;
+	background-color: lightblue;
+	border-left: 1px solid gray;
+}
+
+.label_point {
+	display: none;
+}
+
+.label {
+	opacity: .4;
+	font-size: 14pt;
+}
+
+#tooltip {
+	margin-top: 1em;
+	font-size: 10pt;
+
+}

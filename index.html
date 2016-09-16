@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Production Studios in NYC</title>
+<meta charset="utf-8">
+<link rel="stylesheet" type="text/css" href="style.css"></link>
+<link href='http://fonts.googleapis.com/css?family=Lato|Oswald' rel='stylesheet' type='text/css'>
+<script src="http://vizsociety.net/shared/d3/d3.v3.min.js"></script>
+<script src="http://vizsociety.net/shared/d3/topojson.v1.min.js"></script>
+<script src="http://vizsociety.net/shared/d3/d3.geo.projection.v0.min.js"></script>
+<script src="http://vizsociety.net/shared/js/jquery-1.10.2.js"></script>
+<script src="http://vizsociety.net/shared/js/shared.js"></script>
+<script src="template.js"></script>
+    
+<script type="text/javascript">
+/* Simple D3.js global data viewer — by Henry Thomas, 2015 */
+	
+/* GLOBAL OPTIONS -- you might want to change, but you don't need to */
+
+//global variables
+var width = 960,
+    height = window.innerHeight,
+    rotate = 60, //change this to start at a different center of the projection (e.g. 60 centers on North America)
+	maxlat = 90; //clips the maximum north/south latitudes 
+
+//projection type		
+var projection_id = "mercator";
+//for a list of possible projections, take a look at http://vizsociety.net/shared/js/projectionlist.js
+//for a very zoomed-in map, though, it doesn't really matter much
+
+//map topojson file
+var mapfile = "nyc.json";
+    
+//some default values
+var radius_add = 1; //default raw radius addition
+var radius_min = 2; //minimum radius any data is allowed to have
+    
+    
+//Testing mode! (console can be opened within the browser under developer tools) 
+var debug = false; //turn this on if you want it to shoot messages to the console as it does stuff
+
+    
+    
+/* END GLOBAL OPTIONS */
+/* DATA SPECIFIC OPTIONS -- you need to tailor these to your dataset */
+
+//data file, CSV format (this is where your excel data goes)
+var datafile = "Production_studio_map.csv"; 
+
+//interface options (a.k.a. what you're looking at when you open the html file):
+
+// this creates the radius selector!
+// 	first value is a caption to display
+//	second is a function that tells it the size of the circle, based on the data (or just a fixed number)
+var radii_options = [
+	["Fixed: 1", function(d) { return 1; }],
+	["Fixed: 5", function(d) { return 5; }],
+	["Fixed: 10", function(d) { return 10; }],
+];
+
+
+var radiusSelect = "radiusSelect"; //id name of the HTML select object (how the raidus selector is identified within the HTML)
+var radiusOption = 1; //default radius option
+
+
+// this creates the filter selector!
+// keyword filters -- allows you to filter data based on a field full of an arbitrary number of keywords
+var keyword_filter_options = [
+	["All services ", function(d) { return "All";}],
+	["Music", function(d) { return "Music"; }],
+	["TV", function(d) { return "TV"; }],
+	["Film", function(d) { return "Film"; }],
+	["Radio", function(d) { return "Radio"; }],
+];
+
+    
+var keyword_filter_field = "Service"; //the field in the CSV file (Remember CSV is the same thing as excel in this case)
+var keyword_filter_separator = ","; //what separates the keywords in the CSV file
+var filterSelect = "filterSelect"; //id name of the HTML select object
+var filterOption = 0; //default filter option
+
+
+//this creates the individual studio finder!
+//text for the finder selector
+var finder_text = function(d) { 
+	return d["Studio Name"]; 
+};
+
+
+//this is what will show up on the side when you hover over a studio. (a.k.a. metadata)
+//text for the caption when data is highlighted or selected
+var caption_text = function(d) {
+	return "<b><big>"+d["Studio Name"] + "</big></b><br>"
+		+ "Address: "+d["Location"]+"<br>"
+		+ "Phone number: "+d["Phone"]+"<br>"
+		+ "Website: "+d["Website"]+"<br>"
+		+ "Services: "+d["Service"]+"<br>"
+		;
+}
+
+//custom function that tells the code how to get lat/lng data from your dataset; always return an array of [lat,lon] as floats
+var latLon = function (d) {
+	return [parseFloat(d["lat"]),parseFloat(d["lon"])];
+}
+
+//color scale
+var color = d3.scale.linear()
+    .domain([0,25])
+    .range(["steelblue", "orangered"]);
+
+//custom function that lets you set color based on data
+var data_color = function(d) {
+	return color(d["Studio Name"]);
+	//return "steelblue"; 
+
+}
+
+//functions that add new variables to the data
+var data_preprocess = [
+	
+];
+
+//determines how the data is sorted
+var sort_field = "";
+var sort_desc = true; //
+
+/* END DATA-SPECIFIC OPTIONS */
+
+
+//other global variables -- don't touch
+var cdata = []; //this will hold a copy of all of our data
+var ids = []; //this will map all ids to objects indices -- useful if we want to sort them
+
+
+//d3 global objects -- don't touch
+var svg;
+var stage;
+var captions; 
+var projection;
+var path; 
+var graticule; 
+var circles;
+var tooltip;
+var zoom;
+var landforms;
+
+var zoom;
+var centered;
+
+//begin main functions:
+
+//startup (runs on load of page)
+function init() {
+	//set up projection
+	projection = d3.geo[projection_id]()
+	.rotate([73.98,-40.76,0]) //centers map on Manhattan
+	.scale(400000)
+	.translate([(width) / 2, (height)/2]);
+
+	//create a path object to manipulate
+	path = d3.geo.path()
+		.projection(projection);
+
+	zoom = d3.behavior.zoom()
+		.scaleExtent([1, 9200])
+		.on("zoom", move);
+
+
+	//create the svg object
+	svg = d3.selectAll('#map')
+    .append('svg')
+        .attr('width',width)
+        .attr('height',height)
+		.attr("viewBox","0 0 "+width+" "+height) //this last line makes it resize along with the browser window
+	;
+
+	//create a group for all of the stuff to go inside the SVG (this is so we can resize them all at once)
+	stage = svg.append("g");
+ 
+
+	//create landforms group, append to svg object
+	landforms = stage.append("g").attr("id","landforms");
+
+	//create a generic group on top of the landforms, but under data, that we can add captions to
+	captions = stage.append("g");
+
+	//add a group into the SVG file, give it the id "circles"
+	circles = stage.insert("svg:g").attr("id", "circles");
+
+	//this designates what the "tooltip" is going to be
+	tooltip = d3.select("#texts")
+				.append("div")
+				.attr("id","tooltip")
+				.text("");
+	
+	//make the radii selector from options
+	var rs = document.getElementById(radiusSelect);
+	for(i in radii_options) {
+		var opt = document.createElement("option");
+		opt.text = radii_options[i][0];
+		opt.value = i;
+		if(i==radiusOption) opt.selected = true;
+		rs.add(opt);
+	}
+
+	//make the filter selector from options
+	var rs = document.getElementById(filterSelect);
+	for(i in keyword_filter_options) {
+		var opt = document.createElement("option");
+		opt.text = keyword_filter_options[i][0];
+		opt.value = i;
+		if(i==filterOption) opt.selected = true;
+		rs.add(opt);
+	}
+
+
+	//load the map form
+	d3.json(mapfile, function(error, world) {
+		//this "switch" just makes this compatible with the two main types of map files
+		switch(world.type) {
+			case "FeatureCollection": 
+			landforms.append("g")
+				.selectAll(".land_boundaries")
+				.data(world.features)
+				.enter().append("path")
+				.attr("class", function(d){ return d.properties.name; })
+				.attr("class", "land_boundaries")
+				.attr("d", path)
+      			.on("click", click)				
+      			;
+
+			break;
+			case "Topology": 
+			  landforms.append("path")
+				  .datum(topojson.feature(world, world.objects.land))
+				  .attr("class", "land_boundaries")
+				  .attr("d", path)
+				  ;
+			  landforms.append("path")
+				  .datum(topojson.feature(world, world.objects.countries))
+				  .attr("class", "country_boundaries")
+				  .attr("d", path)
+				  ;	
+			 break;
+		}
+	});
+
+	// //add a graticule (optional) -- only worth it on large maps
+	// graticule = d3.geo.graticule();
+	// stage.append("path")
+	// 	.datum(graticule)
+	// 	.attr("id", "graticule")
+	// 	.attr("d", path);
+
+	//load from the CSV file into the array object
+	d3.csv(datafile, function(datarows) {
+			var i = 0; //just a blank index to iterate
+			datarows.forEach(function(d) { //for each data row in the CSV file
+				d.id = parseInt(i); //keep track of what row number it is			
+				if(debug) console.log("Parsing item "+i);
+				//parse latlng positions
+				var ll = latLon(d);
+				for(x in data_preprocess) {
+					d[data_preprocess[x][0]] = data_preprocess[x][1](d);
+				}
+				d.positions = projection([ll[1],ll[0]]); //create the pixel positions and add them to the data object 
+
+				cdata.push(d);  //add the data object to a big data array
+				//populate a "finder" drop-down list
+				if(typeof finder_text == "function") { //if the finder_text function is set		
+					var newoption = document.createElement("option"); 
+					newoption.text = finder_text(d);
+					newoption.value = i;
+					document.getElementById("finddata").add(newoption);
+				}
+				//increase the row number counter
+				i++;
+			});
+			//sort data by field
+			if(sort_field) {
+				cdata.sort(function(a, b) {
+					return a[sort_field] - b[sort_field];
+				});
+				if(sort_desc) cdata.reverse();
+			}
+		showdata(cdata); //all data is now loaded, so show it
+        if(debug) console.log(cdata);
+            
+	})
+
+}
+
+//takes all the data and uses it to draw the dots
+function showdata(data) {
+	//create a circles class
+	 circles.selectAll("circle")
+		.data(data) //use the data to draw the circles...
+		  .enter().append("svg:circle")
+			.attr("class", "dot") //set their class to "dot"
+
+			.attr("id", function(d, i) { return "c_"+d.id; }) //set an individual id for each circle
+
+			.attr("i", function(d, i) { return d.id; }) //same as the above but just a number -- sometime useful to have access to which number it is in the set
+			
+			.attr("cx", function(d, i) { return d.positions[0]; }) //x position
+			.attr("cy", function(d, i) { return d.positions[1]; }) //y position
+			
+			.style("fill", function(d,i) { return data_color(d); }) //fill color, based on a function above
+			
+			.attr("r", function(d, i) { return Math.max(radii_options[radiusOption][1](d)+radius_add,0); }) //set the radius, based on the radius option function above
+			
+			.on("mouseover", function(d,i){  //what to do when the mouse goes over
+				d3.select("#c_"+d.id).style("stroke-width","2px");					
+				d3.select("#c_"+d.id).style("opacity",1);
+				tooltip.html(caption_text(d));
+				})
+			.on("mouseout",  function(d,i){ //what to do when the mouse is no longer over it
+				d3.select("#c_"+d.id).style("opacity",.5);
+				d3.select("#c_"+d.id).style("stroke-width","1px");					
+				tooltip.html(""); 
+			})
+
+			.on("click", click) //let it take clicks
+		;
+
+		//while we're at it, add some captions manually
+		addpoint(40.77,-74.05,"Manhattan");
+		addpoint(40.65,-73.98,"Brooklyn");
+		addpoint(40.85,-73.91,"The Bronx");
+		addpoint(40.72,-73.87,"Queens");
+		addpoint(40.58,-74.20,"Staten Island");
+}
+
+//updates the size of the data circle radii based on a passed variable
+function updateRadius(option) {
+	radiusOption = option;
+	svg.selectAll("#circles circle") //for each of the circles...
+	.transition()	//adding this means it will make the radius change in a smooth way
+	.attr("r", function(d, i) { return Math.max(radii_options[radiusOption][1](d)+radius_add,0); });
+}
+
+//updates circles to display based on filter
+function filterByfilter(option){
+    filterOption = option;
+    svg.select("#c_"+(id))
+}
+    
+//this allows the user to indicate an id of the data from a list and have it highlight the datapoint
+function finddata(id) {
+	if(id) {
+        svg.selectAll("#circles circle") //this resets all of the existing data outlines
+			.style("stroke-width",1)
+			.style("stroke","white")
+		;
+        
+		svg.select("#c_"+(id)) //this takes the one selected by the user and makes the radius large, then transitions to a smaller one
+			.style("stroke","green")
+			.style("stroke-width",500)
+			.transition()
+			.style("stroke-width",5)
+		;
+		for(i in cdata) {
+			if(cdata[i].id==id) { //shows the caption of the datapoint selected (it has to search for it, because the data might be sorted)
+				tooltip.html(caption_text(cdata[i]));
+				break;
+			}
+		}
+	}
+}
+
+
+function radiusAdjust(dir) {
+	radius_add+=dir;
+	d3.select("#radiusAdjusted").text(radius_add==0?"":"["+(radius_add>0?"+":"")+radius_add+"]");
+	updateRadius(document.getElementById("radiusSelect").value);
+}
+
+
+//function to add points and text to the map (used to plot borough names)
+function addpoint(lat,lon,text,hide_circle) {
+	var gpoint = captions.append("g").attr("class", "gpoint");
+	var x = projection([lon,lat])[0];
+	var y = projection([lon,lat])[1];
+
+	if(!hide_circle) {
+		gpoint.append("svg:circle")
+			.attr("cx", x)
+			.attr("cy", y)
+			.attr("class","label_point")
+			.attr("r", 5)
+			.on("click",click);
+	}
+
+	//conditional in case a point has no associated text
+	if(text.length>0){
+	gpoint.append("text")
+		.attr("x", x+10)
+		.attr("y", y+5)
+		.attr("class","label")
+		.text(text)
+		.on("click",click);
+	}
+}
+
+var throttleTimer;
+function throttle() {
+  window.clearTimeout(throttleTimer);
+    throttleTimer = window.setTimeout(function() {
+      redraw();
+    }, 200);
+}
+
+function move() {
+	console.log("move!")
+
+  var t = d3.event.translate;
+  var s = d3.event.scale; 
+  zscale = s;
+  var h = height/4;
+
+
+  t[0] = Math.min(
+    (width/height)  * (s - 1), 
+    Math.max( width * (1 - s), t[0] )
+  );
+
+  t[1] = Math.min(
+    h * (s - 1) + h * s, 
+    Math.max(height  * (1 - s) - h * s, t[1])
+  );
+
+  zoom.translate(t);
+  g.attr("transform", "translate(" + t + ")scale(" + s + ")");
+
+  //adjust the country hover stroke width based on zoom level
+  d3.selectAll(".country").style("stroke-width", 1.5 / s);
+
+}
+
+//this zooms the mouse in if you click on something
+function click(d) {
+	var x, y, k;
+	//x and y are the pixel positions to center on
+	//k is the zoom level
+	if(!d&& !centered) {
+		x = d3.mouse(this)[0];
+		y = d3.mouse(this)[1];
+		k = 3;
+		centered = true;
+	} else if(!d && centered) {	//special case for clicking on things without positions
+		x = width / 2;
+		y = height / 2;
+		k = 1;
+		centered = null;
+	} else if(d.positions && centered !==d) { //if you click on something that has a "positions" property, it will center on it — this makes circles clickable
+		x = d.positions[0];
+		y = d.positions[1];
+		k = 5;
+		centered = d;
+	} else if (d && centered !== d) { //if you click on anything else that had position data (like a landform), it will figure out the center of it and them zoom on it
+		var centroid = path.centroid(d);
+		x = centroid[0];
+		y = centroid[1];
+		k = 3;
+		centered = d;
+	} else { //if it detects it is already zoomed it, it zooms back out
+		x = width / 2;
+		y = height / 2;
+		k = 1;
+		centered = null;
+	}
+
+	stage.selectAll("path")
+	  .classed("active", centered && function(d) { return d === centered; });
+
+	stage.transition()
+	  .duration(750)
+	  .attr("transform", "translate(" + width / 2 + "," + height / 2 + ")scale(" + k + ")translate(" + -x + "," + -y + ")")
+	;
+}
+
+//keyword filtering function — will choose which data to show or hide based on a field's value
+function keywordFilterData(value) { //this is called whenever the selector changes
+	stage //with the stage
+		.selectAll(".dot") //select all dots
+		.data(cdata) //parse the data again 
+		.attr("class",function(d) { //change the class based on the field
+			if(value==0) { //if "all" is selected
+				return "dot"; //just make it a regular dot
+			} else { //but if something else is selected
+				var keywords = d[keyword_filter_field].split(keyword_filter_separator); //make an array of all fields in this data field, based on them being separated by commas
+				for(i in keywords) { keywords[i] = keywords[i].trim().toLowerCase(); } //get rid of extra spaces and case sensitivity
+				if(keywords.indexOf(keyword_filter_options[value][0].toLowerCase())!==-1) { //if the keyword is found
+					return "dot data_hilight"; //add the data_hilight class, so we can toggle it if we want to make it more visible
+				} else { //if it is not found...
+					return "dot data_hidden"; //add the "data_hidden" class to it, so we can toggle it to be hidden, or faded, or a different color, or whatever in the stylesheet
+				}
+			}
+		})
+	;
+
+}
+
+//resizes the svg to the window whenever the window size changes
+function updateWindow(){
+	var w = window;
+	var window_width = w.innerWidth || e.clientWidth || g.clientWidth;
+	var window_height = w.innerHeight|| e.clientHeight|| g.clientHeight;
+
+	svg.attr("height", window_height);
+}
+window.onresize = updateWindow;
+
+</script>
+<body onload="init();">
+	<div id="map"></div>
+	<div id="texts">
+		<div id="title">New York City Production Studios</div>
+		<div id="author">by Henry Thomas</div>
+		<hr>
+		<select id="finddata" onchange="finddata(this.value);"><option value="">Locate a Studio...</option></select>
+		<hr>
+		Radius: <select id="radiusSelect" onchange="updateRadius(this.value);"></select> <input type="submit" value="+" onclick="radiusAdjust(1);"><input type="submit" onclick="radiusAdjust(-1);" value="&minus;"> <span id="radiusAdjusted"></span>
+		<hr>
+		Service: <select id="filterSelect" onchange="keywordFilterData(this.value);"></select> 
+		<br>
+	</div>
+</body>
+</html>
